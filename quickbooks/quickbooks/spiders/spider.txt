@@ -1,0 +1,70 @@
+#Author: Anurag Misra
+#Date: 12/16/2016
+#Organization: Thought Toast
+#Purpose: To extract the articles of quickbooks page.
+
+import scrapy
+from quickbooks.items import QuickbooksItem
+
+class quickbooksSpider(scrapy.Spider):
+    name = "quickbooks"
+    allowed_domains = ["community.intuit.com"]
+    start_urls = ["https://community.intuit.com/quickbooks-online"]
+    archorURL = []
+    browseURL = []
+
+    def parse(self, response):
+        #footer = response.css("footer")
+        FooterDivs = response.xpath("//footer/div[1]/div[1]/div/ul/li")
+        for FooterDiv in FooterDivs:
+            item = QuickbooksItem()
+            #Categories = FooterDiv.xpath("a")
+            Content_Link = FooterDiv.xpath("a/@href").extract()[0]
+            if ( "/browse/" not in Content_Link):
+                continue
+            else:
+                item["Category"] = FooterDiv.xpath("a/text()").extract()[0]
+                #Content_Link = FooterDiv.xpath("a/@href").extract()[0]
+                request = scrapy.Request(Content_Link , callback= self.getContentInfo)
+                request.meta['item'] = item
+                yield request
+
+    def getContentInfo(self, response):
+        item = response.meta['item']
+        linkdivs = response.xpath(".//*[@id='browse-links']")
+        pagelinks = linkdivs.css("a")
+        for pagelink in pagelinks:
+            archor = pagelink.css("a::attr(href)").extract()[0]
+            if ("/articles/" in archor and archor not in self.archorURL):
+                self.archorURL.append(archor)
+                #print self.archorURL
+                item["SubCategory"] = pagelink.css("a::text").extract()[0]
+                item["ContentURL"] = archor
+                request = scrapy.Request(archor, callback=self.getArticleInfo)
+                request.meta['item'] = item
+                yield request
+            elif ("/browse/" in archor and archor not in self.browseURL):
+                self.browseURL.append(archor)
+                request = scrapy.Request(archor, callback=self.getContentInfo)
+                request.meta['item'] = item
+                yield request
+            else:
+                continue
+
+
+    def getArticleInfo(self, response):
+        item = response.meta['item']
+        contents = response.xpath("/html/body/div[2]/div/div[1]/section[1]//*/text()").extract()
+        lng_string = ""
+        for content in contents:
+            string = content.encode('ascii','ignore').strip()
+            lng_string = lng_string+" "+string
+        item['Content'] = lng_string
+        title = response.xpath("/html/body/div[2]/div/div[1]/section[1]/h1/text()").extract()[0]
+        item["Title"] = title
+        return item
+
+    def __del__(self, *args, **kwargs):
+        super(edmodoSpider, self).__del__(*args, **kwargs)
+        print "Total browse URL are: " , len(self.browseURL)
+        print "Total archor URL are: " , len(self.archor)
